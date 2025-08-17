@@ -1,0 +1,27 @@
+{
+  "name": "ploxoradaemon",
+  "version": "1.0.0",
+  "description": "daemon of Best VPS Management dashboard....",
+  "main": "index.js",
+  "scripts": {
+    "initialize": "node exec/key"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HydrenFOSS/PloxoraDaemon.git"
+  },
+  "keywords": [
+    "VPS",
+    "Daemon",
+    "ploxra"
+  ],
+  "author": "ma4z",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/HydrenFOSS/PloxoraDaemon/issues"
+  },
+  "homepage": "https://github.com/HydrenFOSS/PloxoraDaemon#readme",
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

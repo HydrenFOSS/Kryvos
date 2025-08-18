@@ -182,6 +182,9 @@ app.get("/list", (req, res) => {
   res.json({ servers: serverDetails });
 });
 
+app.get("/version", (req, res) => {
+  res.json({ version: "1.0.0" });
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`PloxoraDaemon is running on ${PORT}`);

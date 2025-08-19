@@ -72,11 +72,11 @@ async function captureSSHCommand(proc) {
 
 // API Endpoints
 app.post("/deploy", async (req, res) => {
-  const { ram , cores  } = req.body;
+  const { ram , cores , name } = req.body;
   let containerId;
   try {
     containerId = execSync(
-      `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} ${image}`
+      `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} -e VPS_NAME=${name} ${image}`
     )
       .toString()
       .trim();

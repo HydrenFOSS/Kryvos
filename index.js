@@ -72,13 +72,13 @@ async function captureSSHCommand(proc) {
 
 // API Endpoints
 app.post("/deploy", async (req, res) => {
-  const { ram , cores , name } = req.body;
+  const { ram, cores, name } = req.body;
   let containerId;
   try {
     containerId = execSync(
-      `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} -e VPS_NAME=${name} ${image}`
-    )
-      .toString()
+  `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} ${image}`
+)
+      .toString() 
       .trim();
   } catch (err) {
     return res.status(500).json({ error: `Error creating Docker container: ${err}` });

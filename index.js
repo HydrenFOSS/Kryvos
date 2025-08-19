@@ -2,7 +2,8 @@ const express = require("express");
 const { spawn, execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-
+const Catloggr = require("cat-loggr");
+const logger = new Catloggr({ prefix: "Ploxora" });
 const app = express();
 app.use(express.json());
 
@@ -16,13 +17,14 @@ function addToDatabase(containerName, sshCommand) {
 const configPath = path.join("./config.json");
 
 if (!fs.existsSync(configPath)) {
-  console.log("⚠️  Please Create a node on your Ploxora Panel then copy the node command and run it first");
+  logger.warn("⚠️  Please Create a node on your Ploxora Panel then copy the node command and run it first");
   process.exit(1);
 }
 let config;
 try {
   config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 } catch (err) {
+  logger.error(err)
   process.exit(1);
 }
 
@@ -35,6 +37,14 @@ app.use((req, res, next) => {
 
   next();
 });
+const asciiart = `
+  _____  _                          _____                                   
+ |  __ \\| |                        |  __ \\                                  
+ | |__) | | _____  _____  _ __ __ _| |  | | __ _  ___ _ __ ___   ___  _ __  
+ |  ___/| |/ _ \\ \\/ / _ \\| '__/ _\` | |  | |/ _\` |/ _ \\ '_ \` _ \\ / _ \\| '_ \\ 
+ | |    | | (_) >  < (_) | | | (_| | |__| | (_| |  __/ | | | | | (_) | | | |
+ |_|    |_|\\___/_/\\_\\___/|_|  \\__,_|_____/ \\__,_|\\___|_| |_| |_|\\___/|_| |_|
+`;
 
 function listServersFromFile() {
   try {
@@ -43,7 +53,52 @@ function listServersFromFile() {
     return [];
   }
 }
+/**
+ * Pulls a Docker image and logs each output line via Catloggr
+ * @param {string} image - Docker image to pull
+ */
+function pullImage(image) {
+  return new Promise((resolve, reject) => {
+    logger.info(`Starting pull for Docker image: ${image}`);
 
+    const dockerPull = spawn("docker", ["pull", image]);
+
+    dockerPull.stdout.on("data", (data) => {
+      data.toString()
+        .split("\n")
+        .filter(line => line.trim())
+        .forEach(line => {
+          const log = new Catloggr({ prefix: "Ploxora" }); // init each line
+          log.info(line);
+        });
+    });
+
+    dockerPull.stderr.on("data", (data) => {
+      data.toString()
+        .split("\n")
+        .filter(line => line.trim())
+        .forEach(line => {
+          const log = new Catloggr({ prefix: "Ploxora" }); // init each line
+          log.error(line);
+        });
+    });
+
+    dockerPull.on("close", (code) => {
+      if (code === 0) {
+        logger.info(`Successfully pulled image: ${image}`);
+        resolve();
+      } else {
+        reject(new Error(`Docker pull exited with code ${code}`));
+      }
+    });
+
+    dockerPull.on("error", (err) => {
+      logger.error(`Failed to start docker pull: ${err.message}`);
+      reject(err);
+    });
+  });
+}
+pullImage(image);
 async function captureSSHCommand(proc) {
   return new Promise((resolve) => {
     let sshCommand = null;
@@ -75,6 +130,7 @@ app.post("/deploy", async (req, res) => {
   const { ram, cores, name } = req.body;
   let containerId;
   try {
+    logger.info(`Creating New VPS with ram: ${ram}, cores: ${cores} and name: ${name}`)
     containerId = execSync(
   `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} ${image}`
 )
@@ -105,6 +161,29 @@ app.post("/deploy", async (req, res) => {
     execSync(`docker kill ${containerId}`);
     execSync(`docker rm ${containerId}`);
     return res.status(500).json({ error: "Instance creation failed or timed out" });
+  }
+});
+app.post("/vps/delete", (req, res) => {
+  const { containerId } = req.body;
+
+  if (!containerId) {
+    return res.status(400).json({ error: "containerId is required" });
+  }
+
+  try {
+    // Kill and remove the container
+    execSync(`docker kill ${containerId}`, { stdio: "ignore" });
+    execSync(`docker rm ${containerId}`, { stdio: "ignore" });
+
+    // Remove from servers.txt
+    let servers = listServersFromFile();
+    servers = servers.filter(line => !line.startsWith(containerId));
+
+    fs.writeFileSync(databaseFile, servers.join("\n") + (servers.length ? "\n" : ""));
+
+    return res.json({ message: "Container deleted successfully", containerId });
+  } catch (err) {
+    return res.status(500).json({ error: `Failed to delete container: ${err.message}` });
   }
 });
 app.get("/checkdockerrunning", (req, res) => {
@@ -187,5 +266,6 @@ app.get("/version", (req, res) => {
 });
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`PloxoraDaemon is running on ${PORT}`);
+  console.log(`\n${asciiart}\n`)
+  logger.info(`PloxoraDaemon is running on ${PORT}`);
 });

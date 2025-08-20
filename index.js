@@ -2,8 +2,8 @@ const express = require("express");
 const { spawn, execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-const Catloggr = require("cat-loggr");
-const logger = new Catloggr({ prefix: "Ploxora" });
+const Logger = require("./utilities/log");
+const logger = new Logger({ prefix: "Ploxora", level: "debug" });
 const app = express();
 app.use(express.json());
 
@@ -68,8 +68,7 @@ function pullImage(image) {
         .split("\n")
         .filter(line => line.trim())
         .forEach(line => {
-          const log = new Catloggr({ prefix: "Ploxora" }); // init each line
-          log.info(line);
+          logger.info(line);
         });
     });
 

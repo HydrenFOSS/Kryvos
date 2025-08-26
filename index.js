@@ -263,6 +263,61 @@ app.get("/list", (req, res) => {
 app.get("/version", (req, res) => {
   res.json({ version: "1.0.0" });
 });
+
+app.get("/stats/:containerId", (req, res) => {
+  const { containerId } = req.params;
+
+  try {
+    // 1. Memory + CPU (live stats, single snapshot)
+    const statsRaw = execSync(
+      `docker stats ${containerId} --no-stream --format "{{.MemUsage}}|{{.CPUPerc}}"`
+    )
+      .toString()
+      .trim();
+
+    // Example: "24.3MiB / 1GiB|0.32%"
+    const [memUsageRaw, cpuRaw] = statsRaw.split("|");
+    const memUsed = memUsageRaw.split("/")[0].trim(); // take only "24.3MiB"
+    let memoryMB = 0;
+
+    if (memUsed.toLowerCase().includes("mib")) {
+      memoryMB = parseFloat(memUsed) || 0;
+    } else if (memUsed.toLowerCase().includes("gib")) {
+      memoryMB = (parseFloat(memUsed) || 0) * 1024;
+    } else if (memUsed.toLowerCase().includes("kib")) {
+      memoryMB = (parseFloat(memUsed) || 0) / 1024;
+    } else {
+      memoryMB = parseFloat(memUsed) || 0; // fallback (assume MB)
+    }
+
+    const cpuPercent = parseFloat(cpuRaw.replace("%", "").trim()) || 0;
+
+    // 2. Disk usage (Writable layer only, in MB)
+    const diskRaw = execSync(
+      `docker inspect --size ${containerId} --format '{{.SizeRootFs}}'`
+    )
+      .toString()
+      .trim();
+
+    const diskMB = (parseInt(diskRaw, 10) / (1024 * 1024)).toFixed(2);
+
+    // 3. Status of the Container
+    const status = execSync(`docker inspect --format='{{.State.Status}}' ${containerId}`)
+      .toString()
+      .trim();
+    res.json({
+      containerId,
+      memoryMB,
+      status,
+      cpuPercent,
+      diskUsageMB: parseFloat(diskMB),
+    });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ error: `Failed to get stats: ${err.message}` });
+  }
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n${asciiart}\n`)

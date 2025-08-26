@@ -225,14 +225,15 @@ app.post("/ressh", async (req, res) => {
   const { containerId } = req.body;
 
   try {
-    let status = execSync(`docker inspect --format='{{.State.Running}}' ${containerId}`)
-      .toString()
-      .trim();
+    if (!containerId) return res.status(400).json({ error: "Missing containerId" });
+
+    let status = execSync(`docker inspect --format='{{.State.Running}}' ${containerId}`).toString().trim();
 
     if (status === "'false'") {
       execSync(`docker kill ${containerId}`);
       execSync(`docker rm ${containerId}`);
     }
+
     execSync(`docker start ${containerId}`);
 
     const execCmd = spawn("docker", ["exec", containerId, "tmate", "-F"]);
@@ -245,12 +246,22 @@ app.post("/ressh", async (req, res) => {
         ssh: sshSession,
       });
     } else {
-      return res.status(500).json({ error: "Failed to capture SSH session command" });
+      // always return JSON
+      return res.status(500).json({
+        error: "Failed to capture SSH session command",
+        containerId,
+        ssh: null
+      });
     }
   } catch (err) {
-    return res.status(500).json({ error: `Error: ${err}` });
+    return res.status(500).json({
+      error: `Error: ${err.message || err}`,
+      containerId,
+      ssh: null
+    });
   }
 });
+
 
 app.get("/list", (req, res) => {
   const serverDetails = listServersFromFile();

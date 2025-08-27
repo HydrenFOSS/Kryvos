@@ -5,6 +5,7 @@ const path = require("path");
 const Logger = require("./utilities/log");
 const logger = new Logger({ prefix: "Ploxora", level: "debug" });
 const app = express();
+const os = require("os");
 app.use(express.json());
 
 const databaseFile = path.join(__dirname, "servers.txt");
@@ -274,59 +275,130 @@ app.get("/list", (req, res) => {
 app.get("/version", (req, res) => {
   res.json({ version: "1.0.0" });
 });
-
 app.get("/stats/:containerId", (req, res) => {
   const { containerId } = req.params;
 
   try {
-    // 1. Memory + CPU (live stats, single snapshot)
+    // 1. Memory + CPU
     const statsRaw = execSync(
       `docker stats ${containerId} --no-stream --format "{{.MemUsage}}|{{.CPUPerc}}"`
     )
       .toString()
       .trim();
 
-    // Example: "24.3MiB / 1GiB|0.32%"
     const [memUsageRaw, cpuRaw] = statsRaw.split("|");
-    const memUsed = memUsageRaw.split("/")[0].trim(); // take only "24.3MiB"
+    const memUsed = memUsageRaw.split("/")[0].trim(); 
     let memoryMB = 0;
 
-    if (memUsed.toLowerCase().includes("mib")) {
-      memoryMB = parseFloat(memUsed) || 0;
-    } else if (memUsed.toLowerCase().includes("gib")) {
-      memoryMB = (parseFloat(memUsed) || 0) * 1024;
-    } else if (memUsed.toLowerCase().includes("kib")) {
-      memoryMB = (parseFloat(memUsed) || 0) / 1024;
-    } else {
-      memoryMB = parseFloat(memUsed) || 0; // fallback (assume MB)
-    }
+    if (memUsed.toLowerCase().includes("mib")) memoryMB = parseFloat(memUsed) || 0;
+    else if (memUsed.toLowerCase().includes("gib")) memoryMB = (parseFloat(memUsed) || 0) * 1024;
+    else if (memUsed.toLowerCase().includes("kib")) memoryMB = (parseFloat(memUsed) || 0) / 1024;
+    else memoryMB = parseFloat(memUsed) || 0;
 
     const cpuPercent = parseFloat(cpuRaw.replace("%", "").trim()) || 0;
 
-    // 2. Disk usage (Writable layer only, in MB)
+    // 2. Disk usage
     const diskRaw = execSync(
       `docker inspect --size ${containerId} --format '{{.SizeRootFs}}'`
-    )
-      .toString()
-      .trim();
-
+    ).toString().trim();
     const diskMB = (parseInt(diskRaw, 10) / (1024 * 1024)).toFixed(2);
 
-    // 3. Status of the Container
-    const status = execSync(`docker inspect --format='{{.State.Status}}' ${containerId}`)
-      .toString()
-      .trim();
+    // 3. Status
+    const status = execSync(`docker inspect --format='{{.State.Status}}' ${containerId}`).toString().trim();
+
+    // 4. Uptime
+    const startedAt = execSync(`docker inspect --format='{{.State.StartedAt}}' ${containerId}`).toString().trim();
+    const uptimeMs = new Date() - new Date(startedAt);
+    const uptimeHours = Math.floor(uptimeMs / 1000 / 60 / 60);
+    const uptimeMinutes = Math.floor((uptimeMs / 1000 / 60) % 60);
+
     res.json({
       containerId,
       memoryMB,
       status,
       cpuPercent,
       diskUsageMB: parseFloat(diskMB),
+      uptime: `${uptimeHours}h ${uptimeMinutes}m`
     });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ error: `Failed to get stats: ${err.message}` });
+    return res.status(500).json({ error: `Failed to get stats: ${err.message}` });
+  }
+});
+let cachedUsage = {
+  totalCPU: "0.00",
+  totalMemoryUsedMB: "0.00",
+  totalDiskMB: "0.00",
+  uptime: "0d 0h 0m"
+};
+app.get('/docker-usage', (req, res) => {
+  try {
+    // --- DOCKER STATS ---
+    const statsOutput = execSync(
+      'docker stats --no-stream --format "{{.CPUPerc}} {{.MemUsage}}"',
+      { encoding: 'utf-8' }
+    );
+
+    let totalCPU = 0;
+    let totalMemoryUsedMB = 0;
+
+    if (statsOutput.trim()) {
+      statsOutput.trim().split('\n').forEach(line => {
+        const parts = line.trim().split(' ');
+        if (parts.length < 2) return;
+
+        const cpuPerc = parts[0];
+        const memUsage = parts[1];
+
+        // Sum CPU %
+        totalCPU += parseFloat(cpuPerc.replace('%', '')) || 0;
+
+        // Convert memory to MB and sum
+        let usedMB = 0;
+        if (memUsage.toUpperCase().includes('G')) {
+          usedMB = parseFloat(memUsage) * 1024;
+        } else if (memUsage.toUpperCase().includes('M')) {
+          usedMB = parseFloat(memUsage.replace(/MiB|MB/i, '')) || 0;
+        } else if (memUsage.toUpperCase().includes('K')) {
+          usedMB = (parseFloat(memUsage.replace(/KiB|KB/i, '')) || 0) / 1024;
+        }
+
+        totalMemoryUsedMB += usedMB;
+      });
+    }
+
+    // --- DOCKER DISK USAGE ---
+    const diskOutput = execSync('docker system df --format "{{.Size}}"', { encoding: 'utf-8' });
+    let totalDiskMB = 0;
+
+    if (diskOutput.trim()) {
+      totalDiskMB = diskOutput
+        .trim()
+        .split('\n')
+        .reduce((sum, size) => {
+          if (!size) return sum;
+          if (size.toUpperCase().includes('GB')) return sum + parseFloat(size) * 1024;
+          if (size.toUpperCase().includes('MB')) return sum + parseFloat(size);
+          if (size.toUpperCase().includes('KB')) return sum + parseFloat(size) / 1024;
+          return sum;
+        }, 0);
+    }
+
+    // --- SYSTEM UPTIME ---
+    const uptimeSeconds = os.uptime();
+    const uptimeDays = Math.floor(uptimeSeconds / (60 * 60 * 24));
+    const uptimeHours = Math.floor((uptimeSeconds / (60 * 60)) % 24);
+    const uptimeMinutes = Math.floor((uptimeSeconds / 60) % 60);
+
+    // --- RESPONSE ---
+    res.json({
+      totalCPU: totalCPU.toFixed(2),
+      totalMemoryUsedMB: totalMemoryUsedMB.toFixed(2),
+      totalDiskMB: totalDiskMB.toFixed(2),
+      uptime: `${uptimeDays}d ${uptimeHours}h ${uptimeMinutes}m`,
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 const PORT = process.env.PORT || 3000;

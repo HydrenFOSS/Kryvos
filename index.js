@@ -78,8 +78,7 @@ function pullImage(image) {
         .split("\n")
         .filter(line => line.trim())
         .forEach(line => {
-          const log = new Catloggr({ prefix: "Ploxora" }); // init each line
-          log.error(line);
+          logger.error(line);
         });
     });
 
@@ -279,23 +278,44 @@ app.get("/stats/:containerId", (req, res) => {
   const { containerId } = req.params;
 
   try {
-    // 1. Memory + CPU
+    // 1. Memory + CPU + Net I/O
     const statsRaw = execSync(
-      `docker stats ${containerId} --no-stream --format "{{.MemUsage}}|{{.CPUPerc}}"`
+      `docker stats ${containerId} --no-stream --format "{{.MemUsage}}|{{.CPUPerc}}|{{.NetIO}}"`
     )
       .toString()
       .trim();
 
-    const [memUsageRaw, cpuRaw] = statsRaw.split("|");
-    const memUsed = memUsageRaw.split("/")[0].trim(); 
-    let memoryMB = 0;
+    const [memUsageRaw, cpuRaw, netRaw] = statsRaw.split("|");
 
+    // --- Memory (MB) ---
+    const memUsed = memUsageRaw.split("/")[0].trim();
+    let memoryMB = 0;
     if (memUsed.toLowerCase().includes("mib")) memoryMB = parseFloat(memUsed) || 0;
     else if (memUsed.toLowerCase().includes("gib")) memoryMB = (parseFloat(memUsed) || 0) * 1024;
     else if (memUsed.toLowerCase().includes("kib")) memoryMB = (parseFloat(memUsed) || 0) / 1024;
     else memoryMB = parseFloat(memUsed) || 0;
 
+    // --- CPU (%) ---
     const cpuPercent = parseFloat(cpuRaw.replace("%", "").trim()) || 0;
+
+    // --- Net I/O ---
+    // Example: "1.23kB / 456B"
+    let inbound = 0, outbound = 0;
+    if (netRaw) {
+      const [inStr, outStr] = netRaw.split("/").map(s => s.trim());
+
+      function toKB(val) {
+        val = val.toUpperCase();
+        if (val.endsWith("GB")) return parseFloat(val) * 1024 * 1024;
+        if (val.endsWith("MB")) return parseFloat(val) * 1024;
+        if (val.endsWith("KB")) return parseFloat(val);
+        if (val.endsWith("B")) return parseFloat(val) / 1024;
+        return parseFloat(val) || 0;
+      }
+
+      inbound = toKB(inStr);   // KB
+      outbound = toKB(outStr); // KB
+    }
 
     // 2. Disk usage
     const diskRaw = execSync(
@@ -304,10 +324,14 @@ app.get("/stats/:containerId", (req, res) => {
     const diskMB = (parseInt(diskRaw, 10) / (1024 * 1024)).toFixed(2);
 
     // 3. Status
-    const status = execSync(`docker inspect --format='{{.State.Status}}' ${containerId}`).toString().trim();
+    const status = execSync(
+      `docker inspect --format='{{.State.Status}}' ${containerId}`
+    ).toString().trim();
 
     // 4. Uptime
-    const startedAt = execSync(`docker inspect --format='{{.State.StartedAt}}' ${containerId}`).toString().trim();
+    const startedAt = execSync(
+      `docker inspect --format='{{.State.StartedAt}}' ${containerId}`
+    ).toString().trim();
     const uptimeMs = new Date() - new Date(startedAt);
     const uptimeHours = Math.floor(uptimeMs / 1000 / 60 / 60);
     const uptimeMinutes = Math.floor((uptimeMs / 1000 / 60) % 60);
@@ -318,18 +342,17 @@ app.get("/stats/:containerId", (req, res) => {
       status,
       cpuPercent,
       diskUsageMB: parseFloat(diskMB),
-      uptime: `${uptimeHours}h ${uptimeMinutes}m`
+      uptime: `${uptimeHours}h ${uptimeMinutes}m`,
+      network: {
+        inboundKB: inbound,
+        outboundKB: outbound
+      }
     });
   } catch (err) {
     return res.status(500).json({ error: `Failed to get stats: ${err.message}` });
   }
 });
-let cachedUsage = {
-  totalCPU: "0.00",
-  totalMemoryUsedMB: "0.00",
-  totalDiskMB: "0.00",
-  uptime: "0d 0h 0m"
-};
+
 app.get('/docker-usage', (req, res) => {
   try {
     // --- DOCKER STATS ---

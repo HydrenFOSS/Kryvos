@@ -126,12 +126,12 @@ async function captureSSHCommand(proc) {
 
 // API Endpoints
 app.post("/deploy", async (req, res) => {
-  const { ram, cores, name } = req.body;
+  const { ram, cores, name, port } = req.body;
   let containerId;
   try {
     logger.info(`Creating New VPS with ram: ${ram}, cores: ${cores} and name: ${name}`)
     containerId = execSync(
-  `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} ${image}`
+  `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${image}`
 )
       .toString() 
       .trim();
@@ -272,7 +272,12 @@ app.get("/list", (req, res) => {
 });
 
 app.get("/version", (req, res) => {
-  res.json({ version: "1.0.0" });
+  const osInfo = `${os.type()} (${os.arch()}) ${os.release()}`;
+
+  res.json({
+    version: "1.0.0",
+    os: osInfo,
+  });
 });
 app.get("/stats/:containerId", (req, res) => {
   const { containerId } = req.params;
@@ -424,7 +429,8 @@ app.get('/docker-usage', (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-const PORT = process.env.PORT || 3000;
+
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`\n${asciiart}\n`)
   logger.info(`PloxoraDaemon is running on ${PORT}`);

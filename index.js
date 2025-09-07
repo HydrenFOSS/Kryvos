@@ -97,7 +97,6 @@ function pullImage(image) {
     });
   });
 }
-pullImage(image);
 async function captureSSHCommand(proc) {
   return new Promise((resolve) => {
     let sshCommand = null;
@@ -126,42 +125,47 @@ async function captureSSHCommand(proc) {
 
 // API Endpoints
 app.post("/deploy", async (req, res) => {
-  const { ram, cores, name, port } = req.body;
+  const { ram, cores, name, port, nbimg } = req.body;
   let containerId;
+  let sshSession;
+
   try {
-    logger.info(`Creating New VPS with ram: ${ram}, cores: ${cores} and name: ${name}`)
+    console.log(`Creating New VPS with ram: ${ram}, cores: ${cores} and name: ${name}`);
+    
     containerId = execSync(
-  `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${image}`
-)
-      .toString() 
-      .trim();
-  } catch (err) {
-    return res.status(500).json({ error: `Error creating Docker container: ${err}` });
-  }
+      `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${nbimg}`
+    ).toString().trim();
 
-  let execCmd;
-  try {
-    execCmd = spawn("docker", ["exec", containerId, "tmate", "-F"]);
-  } catch (err) {
-    execSync(`docker kill ${containerId}`);
-    execSync(`docker rm ${containerId}`);
-    return res.status(500).json({ error: `Error executing tmate: ${err}` });
-  }
+    // Example: spawn tmate inside container (i dont need it for now)
+    // const execCmd = spawn("docker", ["exec", "-it", containerId, "tmate", "-F"]);
+    // execCmd.stdout.on("data", (data) => {
+    //   console.log(`tmate output: ${data}`);
+    //   sshSession = data.toString();
+    // });
 
-  const sshSession = await captureSSHCommand(execCmd);
-  if (sshSession) {
-    addToDatabase(containerId, sshSession);
+    sshSession = `tmate-is-ass`;
+
+    await addToDatabase(containerId, sshSession);
     return res.json({
       message: "Instance created successfully",
       containerId,
       ssh: sshSession,
     });
-  } else {
-    execSync(`docker kill ${containerId}`);
-    execSync(`docker rm ${containerId}`);
-    return res.status(500).json({ error: "Instance creation failed or timed out" });
+
+  } catch (err) {
+    console.error(err);
+    if (containerId) {
+      try {
+        execSync(`docker kill ${containerId}`);
+        execSync(`docker rm ${containerId}`);
+      } catch (cleanupErr) {
+        console.error("Error during cleanup:", cleanupErr);
+      }
+    }
+    return res.status(500).json({ error: `Instance creation failed: ${err.message}` });
   }
 });
+
 app.post("/vps/delete", (req, res) => {
   const { containerId } = req.body;
 

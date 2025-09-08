@@ -3,10 +3,12 @@ const { spawn, execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const Logger = require("./utilities/log");
-const logger = new Logger({ prefix: "Ploxora", level: "debug" });
+const logger = new Logger({ prefix: "Kryvos", level: "debug" });
 const app = express();
 const os = require("os");
 app.use(express.json());
+
+const docker = require("./docker");
 
 const databaseFile = path.join(__dirname, "servers.txt");
 const image = "ghcr.io/ma4z-sys/vps_gen_v4:latest";
@@ -39,12 +41,14 @@ app.use((req, res, next) => {
   next();
 });
 const asciiart = `
-  _____  _                          _____                                   
- |  __ \\| |                        |  __ \\                                  
- | |__) | | _____  _____  _ __ __ _| |  | | __ _  ___ _ __ ___   ___  _ __  
- |  ___/| |/ _ \\ \\/ / _ \\| '__/ _\` | |  | |/ _\` |/ _ \\ '_ \` _ \\ / _ \\| '_ \\ 
- | |    | | (_) >  < (_) | | | (_| | |__| | (_| |  __/ | | | | | (_) | | | |
- |_|    |_|\\___/_/\\_\\___/|_|  \\__,_|_____/ \\__,_|\\___|_| |_| |_|\\___/|_| |_|
+ _  __                          
+| |/ /                          
+| ' / _ __ _   ___   _____  ___ 
+|  < | '__| | | \\ \\ / / _ \\/ __|
+| . \\| |  | |_| |\\ V / (_) \\__ \\
+|_|\\_\\_|   \\__, | \\_/ \\___/|___/
+            __/ |               
+           |___/    
 `;
 
 function listServersFromFile() {
@@ -62,7 +66,8 @@ function pullImage(image) {
   return new Promise((resolve, reject) => {
     logger.info(`Starting pull for Docker image: ${image}`);
 
-    const dockerPull = spawn("docker", ["pull", image]);
+    // ✅ You can still use spawn OR docker.spawn here
+    const dockerPull = docker.spawn(["pull", image]);
 
     dockerPull.stdout.on("data", (data) => {
       data.toString()
@@ -97,6 +102,7 @@ function pullImage(image) {
     });
   });
 }
+
 async function captureSSHCommand(proc) {
   return new Promise((resolve) => {
     let sshCommand = null;
@@ -130,18 +136,16 @@ app.post("/deploy", async (req, res) => {
   let sshSession;
 
   try {
-    console.log(`Creating New VPS with ram: ${ram}, cores: ${cores} and name: ${name}`);
+    //i dont think i need this
+    //logger.init(`Creating New VPS with ram: ${ram}, cores: ${cores} and name: ${name}`);
     
-    containerId = execSync(
-      `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${nbimg}`
-    ).toString().trim();
+    // old way we used
+    //containerId = execSync(
+   //   `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${nbimg}`
+   // ).toString().trim();
 
-    // Example: spawn tmate inside container (i dont need it for now)
-    // const execCmd = spawn("docker", ["exec", "-it", containerId, "tmate", "-F"]);
-    // execCmd.stdout.on("data", (data) => {
-    //   console.log(`tmate output: ${data}`);
-    //   sshSession = data.toString();
-    // });
+    // new one
+    containerId = docker.create(`-itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${nbimg}`);
 
     sshSession = `tmate-is-ass`;
 
@@ -153,13 +157,13 @@ app.post("/deploy", async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     if (containerId) {
       try {
-        execSync(`docker kill ${containerId}`);
-        execSync(`docker rm ${containerId}`);
+        docker.kill(containerId); 
+        docker.rm(containerId);
       } catch (cleanupErr) {
-        console.error("Error during cleanup:", cleanupErr);
+        logger.error("Error during cleanup:", cleanupErr);
       }
     }
     return res.status(500).json({ error: `Instance creation failed: ${err.message}` });
@@ -212,10 +216,10 @@ app.get("/status/:containerId", (req, res) => {
 
 app.post("/action/:action/:containerId", (req, res) => {
   const { action, containerId } = req.params;
-  const validActions = ["start", "stop", "restart"];
+  const validActions = ["start", "stop", "restart", "kill"];
 
   if (!validActions.includes(action)) {
-    return res.status(400).json({ error: "Invalid action. Allowed: start, stop, restart" });
+    return res.status(400).json({ error: "Invalid action. Allowed: start, stop, restart, kill" });
   }
 
   try {
@@ -437,5 +441,5 @@ app.get('/docker-usage', (req, res) => {
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`\n${asciiart}\n`)
-  logger.info(`PloxoraDaemon is running on ${PORT}`);
+  logger.info(`Kryvos is running on ${PORT}`);
 });

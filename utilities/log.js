@@ -1,8 +1,9 @@
 class Logger {
-  constructor({ prefix = "App", level = "info" } = {}) {
+  constructor({ prefix = "App", level = "info", pcolo = "green" } = {}) {
     this.prefix = prefix;
     this.level = level;
     this.levels = ["debug", "info", "warn", "error", "init"];
+    this.pcolo = pcolo
 
     // ANSI color codes
     this.colors = {
@@ -11,6 +12,7 @@ class Logger {
       cyan: "\x1b[36m",
       yellow: "\x1b[33m",
       red: "\x1b[31m",
+      blue: "\x1b[34m",
       green: "\x1b[32m",
       magenta: "\x1b[35m",
       dim: "\x1b[2m",
@@ -19,8 +21,8 @@ class Logger {
 
   format(level, msg) {
     const c = this.colors;
-    const timestamp = `${c.dim}[${new Date().toISOString()}]${c.reset}`;
-    const prefix = `${c.magenta}[${this.prefix}]${c.reset}`;
+    const timestamp = `${c.dim}[${new Date().toLocaleTimeString()}]${c.reset}`;
+    const prefix = `${c[this.pcolo] || ""}[${this.prefix}]${c.reset}`;
 
     const levelDots = {
       debug: c.gray + "●" + c.reset,

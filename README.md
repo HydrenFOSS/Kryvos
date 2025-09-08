@@ -1,7 +1,7 @@
 
-# **PloxoraDaemon**
+# **Kryvos**
 
-Easily manage your Ploxora Panel nodes with **PloxoraDaemon**. Follow the steps below to get started.
+Easily manage your Ploxora Panel nodes with **Kryvos**. Follow the steps below to get started.
 
 ---
 
@@ -24,7 +24,7 @@ npm install
 npm run initialize -- --key RANDOM_KEY --ploxora https://example.com
 ```
 
-Run this command to register your node with PloxoraDaemon.
+Run this command to register your node with Kryvos.
 
 ---
 
@@ -39,5 +39,5 @@ node index.js
 Or use **PM2** for process management and automatic restarts:
 
 ```bash
-pm2 start index.js --name ploxoradaemon
+pm2 start index.js --name kryvos
 ```

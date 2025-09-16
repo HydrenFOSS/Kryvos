@@ -23,6 +23,7 @@
   "homepage": "https://github.com/HydrenFOSS/PloxoraDaemon#readme",
   "dependencies": {
     "cat-loggr": "^1.2.2",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "node-pty": "^1.0.0"
   }
 }

@@ -1,5 +1,6 @@
 const express = require("express");
 const { spawn, execSync } = require("child_process");
+const pty = require("node-pty");
 const fs = require("fs");
 const path = require("path");
 const Logger = require("./utilities/log");
@@ -132,17 +133,20 @@ async function captureSSHCommand(proc) {
 // API Endpoints
 app.post("/deploy", async (req, res) => {
   const { ram, cores, name, port, nbimg } = req.body;
+  if (!ram || !cores || !name || !port || !nbimg) {
+    return res.status(403).json({ success: false, message: "Missing Body" });
+  }
   let containerId;
   let sshSession;
-
+  await pullImage(nbimg);
   try {
     //i dont think i need this
     //logger.init(`Creating New VPS with ram: ${ram}, cores: ${cores} and name: ${name}`);
-    
+
     // old way we used
     //containerId = execSync(
-   //   `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${nbimg}`
-   // ).toString().trim();
+    //   `docker run -itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${nbimg}`
+    // ).toString().trim();
 
     // new one
     containerId = docker.create(`-itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${nbimg}`);
@@ -160,7 +164,7 @@ app.post("/deploy", async (req, res) => {
     logger.error(err);
     if (containerId) {
       try {
-        docker.kill(containerId); 
+        docker.kill(containerId);
         docker.rm(containerId);
       } catch (cleanupErr) {
         logger.error("Error during cleanup:", cleanupErr);
@@ -436,6 +440,67 @@ app.get('/docker-usage', (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+const activeAttachments = new Map();
+
+function generateRandomId() {
+  return Math.random().toString(36).substring(2, 10);
+}
+
+const ATTACH_EXPIRY_MS = 10 * 60 * 60 * 1000; // 10 hours
+
+app.post("/vps/container/attach/:containerId", (req, res) => {
+  const { containerId } = req.params;
+
+  try {
+    execSync(`docker inspect ${containerId}`, { stdio: "ignore" });
+  } catch {
+    return res.status(404).json({ error: "Container not found" });
+  }
+
+  const proc = pty.spawn("docker", ["exec", "-it", containerId, "bash"], {
+    name: "xterm-color",
+    cols: 80,
+    rows: 30,
+    cwd: process.env.HOME,
+    env: process.env,
+  });
+
+
+  const attachedId = generateRandomId();
+  const buffer = [];
+
+  proc.onData(d => buffer.push(d.toString()));
+  proc.onExit(() => activeAttachments.delete(attachedId));
+
+  const timeout = setTimeout(() => {
+    proc.kill();
+    activeAttachments.delete(attachedId);
+  }, ATTACH_EXPIRY_MS);
+
+  activeAttachments.set(attachedId, { proc, buffer, containerId, timeout });
+
+  res.json({ message: "Attached successfully", containerId, attachedId, expiresIn: ATTACH_EXPIRY_MS / 1000 });
+});
+
+app.post("/vps/container/attached/:attachedId/:action", (req, res) => {
+  const { attachedId, action } = req.params;
+  const attach = activeAttachments.get(attachedId);
+  if (!attach) return res.status(404).json({ error: "Session expired or invalid" });
+
+  const { proc, buffer, containerId } = attach;
+
+  if (action === "logs") {
+    return res.json({ containerId, attachedId, logs: buffer.slice(-100).join("") });
+  }
+  if (action === "execute") {
+    const { command } = req.body;
+    if (!command) return res.status(400).json({ error: "Missing command in body" });
+    proc.write(command + "\n"); // ✅ works in PTY
+    return res.json({ containerId, attachedId, message: `Sent: ${command}` });
+  }
+
+  return res.status(400).json({ error: "Invalid action. Allowed: logs, execute" });
 });
 
 const PORT = process.env.PORT || 4000;

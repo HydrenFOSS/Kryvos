@@ -149,7 +149,11 @@ app.post("/deploy", async (req, res) => {
     // ).toString().trim();
 
     // new one
-    containerId = docker.create(`-itd --privileged --cap-add=ALL --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${nbimg}`);
+    containerId = docker.create(
+      `-itd --cap-add=SYS_ADMIN --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+      --memory ${ram} --cpus ${cores} --hostname ${name} -p ${port}:22 ${nbimg}`
+    );
+
 
     sshSession = `tmate-is-ass`;
 
